@@ -49,7 +49,9 @@ func AddWriter(wn io.Writer) {
 
 	// copy on write
 	var newMLogWriter MultiLogWriter
-	copy(newMLogWriter.writers, originalMLogWriter.writers)
+	for i := range originalMLogWriter.writers {
+		newMLogWriter.writers = append(newMLogWriter.writers, originalMLogWriter.writers[i])
+	}
 	newMLogWriter.writers = append(newMLogWriter.writers, wn)
 
 	newMLogWriter.Writer = io.MultiWriter(originalMLogWriter.writers...)
