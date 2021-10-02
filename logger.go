@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync/atomic"
 
 	colorable "github.com/mattn/go-colorable"
 
@@ -17,19 +18,46 @@ type MultiLogWriter struct {
 	io.Writer
 }
 
-var logWriter MultiLogWriter
-var multiLogger = log.New(&logWriter, "", log.LstdFlags)
+var emptyMLogWriter = MultiLogWriter{
+	Writer: io.MultiWriter(),
+}
+var multiLoggerWriter atomic.Value
+var multiLogger *log.Logger
 var colorLogger = log.New(colorable.NewColorableStdout(), "", log.LstdFlags)
 
 func init() {
-	log.SetOutput(io.MultiWriter(os.Stdout, &logWriter))
-	logWriter.Writer = io.MultiWriter()
+	multiLoggerWriter.Store(&emptyMLogWriter)
+	multiLogger = log.New(&emptyMLogWriter, "", log.LstdFlags)
+	log.SetOutput(io.MultiWriter(os.Stdout, &emptyMLogWriter))
+}
+
+func getMLogWriter() *MultiLogWriter {
+	inner := multiLoggerWriter.Load()
+	if inner == nil {
+		return &emptyMLogWriter
+	}
+	writer, ok := inner.(*MultiLogWriter)
+	if !ok {
+		return &emptyMLogWriter
+	}
+	return writer
 }
 
 // AddWriter 添加日志输出端
 func AddWriter(wn io.Writer) {
-	logWriter.writers = append(logWriter.writers, wn)
-	logWriter.Writer = io.MultiWriter(logWriter.writers...)
+	originalMLogWriter := getMLogWriter()
+
+	// copy on write
+	var newMLogWriter MultiLogWriter
+	copy(newMLogWriter.writers, originalMLogWriter.writers)
+	newMLogWriter.writers = append(newMLogWriter.writers, wn)
+
+	newMLogWriter.Writer = io.MultiWriter(originalMLogWriter.writers...)
+
+	multiLoggerWriter.Store(&newMLogWriter)
+
+	multiLogger.SetOutput(newMLogWriter)
+	log.SetOutput(io.MultiWriter(os.Stdout, newMLogWriter))
 }
 
 // MayBeError 优雅错误判断加日志辅助函数
